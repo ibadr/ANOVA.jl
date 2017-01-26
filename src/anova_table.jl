@@ -10,102 +10,47 @@ typealias FPVector{T<:FP} DenseArray{T,1}
 # See also https://github.com/JuliaStats/GLM.jl/pull/65
 
 effects(mod::RegressionModel) = effects(mod.model)
-effects{T<:BlasReal,V<:FPVector}(mod::LinearModel{LmResp{V},DensePredQR{T}})=(mod.pp.qr[:Q]'*mod.rr.y)[1:size(mod.pp.X,2)]
+effects{T<:BlasReal,V<:FPVector}(
+  mod::LinearModel{LmResp{V},DensePredQR{T}}) =
+    (mod.pp.qr[:Q]'*mod.rr.y)[1:size(mod.pp.X,2)]
 
-type ANOVAtest
-  SSH::Float64
-  SSE::Float64
-  MSH::Float64
-  MSE::Float64
-  dfH::Int
-  dfE::Int
-  fstat::Float64
-  pval::Float64    #regular pvalue or -log10pval
-  log10pval::Bool
+type AnovaTable{T<:BlasReal}
+  Df::Vector{T}
+  SS::Vector{T}
+  MS::Vector{T}
+  F::Vector{T}
+  PrF::Vector{T}
+  model::RegressionModel
 end
 
-function anova(mod::RegressionModel; log10pval=false)
-  return anova(mod,collect(0:size(mod.model.pp.X,2)-1))
-end
-#this is a test for a group of terms from a LmMod derived from a formula and dataframe
-function anova(mod::RegressionModel,terms::Array{Int,1}; log10pval=false)
-  #terms is arrary of number for each term in the model to be tested together, starting with the intercept at 0
-  eff=effects(mod)  #get effect for each coefficient
-  ind=findin(mod.mm.assign,terms)
-  eff=eff[ind]
-  SSH=sum(Abs2Fun(),eff)
-  dfH=length(eff)
-  MSH=SSH/dfH
-  SSE=deviance(mod.model.rr)
-  dfE=dof_residual(mod.model)
-  MSE=SSE/dfE
-  fstat=MSH/MSE
-  pval=ccdf(FDist(dfH, dfE), fstat)
-  if log10pval pval= -log10(pval) end
-  return ANOVAtest(SSH,SSE,MSH,MSE,dfH,dfE,fstat,pval,log10pval)
-end
-
-#this is a test for a single term from a LmMod derived from a formula and dataframe
-function anova(mod::RegressionModel,term::Int; log10pval=false)
-  #term an integer for a single term in model to be tested, starting with the intercept at 0
-  eff=effects(mod)  #get effect for each coefficient
-  ind=findin(mod.mm.assign,term)
-  eff=eff[ind]
-  SSH=eff[1]*eff[1]
-  dfH=length(eff)
-  MSH=SSH/dfH
-  SSE=deviance(mod.model.rr)
-  dfE=dof_residual(mod.model)
-  MSE=SSE/dfE
-  fstat=MSH/MSE
-  pval=ccdf(FDist(dfH, dfE), fstat)
-  if log10pval pval= -log10(pval) end
-  return ANOVAtest(SSH,SSE,MSH,MSE,dfH,dfE,fstat,pval,log10pval)
-end
-
-
-#this is a test for a group of coefficients/columns of X based on a LmMod derived without a formula and dataframe
-function anova{T<:BlasReal,V<:FPVector}(mod::LinearModel{LmResp{V},DensePredQR{T}},cols::Array{Int,1}; log10pval=false)
-  #cols a vector of position numbers (column number of X) to be grouped together with the intercept starting at 1
-  #this does not refer the terms of a model defined by a formula if a term has >1 DF
-  eff=effects(mod)  #get effect for each coefficient
-  eff=eff[cols]
-  SSH=sum(Abs2Fun(),eff)
-  dfH=length(eff)
-  MSH=SSH/dfH
-  SSE=deviance(mod.rr)
-  dfE=dof_residual(mod)
-  MSE=SSE/dfE
-  fstat=MSH/MSE
-  pval=ccdf(FDist(dfH, dfE), fstat)
-  if log10pval pval= -log10(pval) end
-  return ANOVAtest(SSH,SSE,MSH,MSE,dfH,dfE,fstat,pval,log10pval)
-end
-
-#this is a test for a single coefficient/columns of X based on a LmMod derived without a formula and dataframe
-function anova{T<:BlasReal,V<:FPVector}(mod::LinearModel{LmResp{V},DensePredQR{T}},col::Int; log10pval=false)
-  #col means the position number of the column of X with the intercept starting at 1
-  #this does not refer the terms of a model defined by a formula if a term has >1 DF
-  eff=effects(mod)  #get effect for each coefficient
-  eff=eff[col]
-  SSH=eff[1]*eff[1]
-  dfH=length(eff)
-  MSH=SSH/dfH
-  SSE=deviance(mod.rr)
-  dfE=dof_residual(mod)
-  MSE=SSE/dfE
-  fstat=MSH/MSE
-  pval=ccdf(FDist(dfH, dfE), fstat)
-  if log10pval pval= -log10(pval) end
-  return ANOVAtest(SSH,SSE,MSH,MSE,dfH,dfE,fstat,pval,log10pval)
-end
-
-function Base.show(io::IO,at::ANOVAtest)
-  if at.log10pval
-      println("              ","DF",'\t',"SS",'\t',"MS",'\t',"F",'\t',"log10pval")
+anova(mod::RegressionModel) = anova(mod.model)
+function anova{T<:BlasReal,V<:FPVector}(mod::LinearModel{LmResp{V},DensePredQR{T}})
+  eff = effects(mod)
+  hasIntercept = isapprox(mean(mod.pp.X[:,1])-1.0,0.0)
+  if hasIntercept
+    k = 1
   else
-      println("              ","DF",'\t',"SS",'\t',"MS",'\t',"F",'\t',"pval")
+    k = 0
   end
-  println("Hypothesis    ",round(at.dfH,3),'\t',round(at.SSH,3),'\t',round(at.MSH,3),'\t',round(at.fstat,3),'\t',at.pval)
-  println("Residuals     ",round(at.dfE,3),'\t', round(at.SSE,3),'\t', round(at.MSE,3))
+  n = size(mod.pp.X,2) + 1 - k
+  DF = zeros(T,n)
+  SS = zeros(T,n)
+  MS = zeros(T,n)
+  fstat = zeros(T,n-1)
+  pval = zeros(T,n-1)
+  DF[end] = dof_residual(mod)
+  SS[end] = deviance(mod.rr)
+  MS[end] = SS[end]/DF[end]
+
+  @inbounds for i in 1:n-1
+    DF[i]=1
+    SS[i]=sumabs2(eff[i+k])
+    MS[i]=SS[i]/DF[i]
+    fstat[i]=MS[i]/MS[end]
+    pval[i]=ccdf(FDist(DF[i], DF[end]), fstat[i])
+  end
+
+  return AnovaTable(
+    DF,SS,MS,fstat,pval,mod
+  )
 end
