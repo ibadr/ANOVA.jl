@@ -1,6 +1,6 @@
 module ANOVA
 
-include("anova_basics.jl")
+include("anova_table.jl")
 export ANOVAtest,
   effects,
   anova
