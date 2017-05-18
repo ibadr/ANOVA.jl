@@ -23,43 +23,60 @@ function effects{T<:BlasReal,V<:FPVector,C<:Any}(
 end
 
 type AnovaTable{T<:BlasReal}
+  termnames::Vector{Any}
   Df::Vector{T}
   SS::Vector{T}
   MS::Vector{T}
   F::Vector{T}
   PrF::Vector{T}
-  model::RegressionModel
 end
 
-anova(mod::RegressionModel) = anova(mod.model)
+function anova(mod::RegressionModel)
+  eff = effects(mod)
+  with_intercept = all(mod.model.pp.X[:,1] .== 1.0)
+  T = eltype(mod.model.pp.X)
+  termnames = mod.mf.terms.terms
+  assign = mod.mm.assign
+  df_residual = dof_residual(mod)
+  devnc = deviance(mod.model.rr)
+  return _anova(eff,with_intercept,T,termnames,assign,df_residual,devnc)
+end
 function anova{M<:LinearModel}(mod::M)
   eff = effects(mod)
-  hasIntercept = isapprox(mean(mod.pp.X[:,1])-1.0,0.0)
-  if hasIntercept
-    k = 1
-  else
-    k = 0
-  end
-  n = size(mod.pp.X,2) + 1 - k
+  with_intercept = all(mod.pp.X[:,1] .== 1.0)
   T = eltype(mod.pp.X)
+  if with_intercept
+    termnames = ["x$i" for i in 1:size(mod.pp.X,2)-1]
+  else
+    termnames = ["x$i" for i in 1:size(mod.pp.X,2)]
+  end
+  assign = 0:1:size(mod.pp.X,2)-1
+  df_residual = dof_residual(mod)
+  devnc = deviance(mod.rr)
+  return _anova(eff,with_intercept,T,termnames,assign,df_residual,devnc)
+end
+
+function _anova(eff,with_intercept,T,termnames,assign,df_residual,devnc)
+  k = with_intercept ? 1 : 0
+  unq_assign = unique(assign)
+  n = length(unq_assign) + 1 - k
   DF = zeros(T,n)
   SS = zeros(T,n)
   MS = zeros(T,n)
   fstat = zeros(T,n-1)
   pval = zeros(T,n-1)
-  DF[end] = dof_residual(mod)
-  SS[end] = deviance(mod.rr)
+  DF[end] = df_residual
+  SS[end] = devnc
   MS[end] = SS[end]/DF[end]
 
   @inbounds for i in 1:n-1
-    DF[i]=1
-    SS[i]=sumabs2(eff[i+k])
-    MS[i]=SS[i]/DF[i]
-    fstat[i]=MS[i]/MS[end]
-    pval[i]=ccdf(FDist(DF[i], DF[end]), fstat[i])
+    v = unq_assign[i+k]
+    mask = assign .== v
+    DF[i] = sum(mask)
+    SS[i] = sumabs2(eff[mask])
+    MS[i] = SS[i]/DF[i]
+    fstat[i] = MS[i]/MS[end]
+    pval[i] = ccdf(FDist(DF[i], DF[end]), fstat[i])
   end
-
-  return AnovaTable(
-    DF,SS,MS,fstat,pval,mod
-  )
+  return AnovaTable(termnames,DF,SS,MS,fstat,pval)
 end
