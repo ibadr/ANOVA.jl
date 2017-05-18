@@ -14,6 +14,14 @@ effects{T<:BlasReal,V<:FPVector}(
   mod::LinearModel{LmResp{V},DensePredQR{T}}) =
     (mod.pp.qr[:Q]'*mod.rr.y)[1:size(mod.pp.X,2)]
 
+function effects{T<:BlasReal,V<:FPVector,C<:Any}(
+  mod::LinearModel{LmResp{V},DensePredChol{T,C}})
+  # TODO this is hackish, and recomputes Q1 with every call
+  R = cholfact!(mod.pp)[:U]
+  Q1 = mod.pp.X / R
+  return Q1' * mod.rr.y
+end
+
 type AnovaTable{T<:BlasReal}
   Df::Vector{T}
   SS::Vector{T}
@@ -24,7 +32,7 @@ type AnovaTable{T<:BlasReal}
 end
 
 anova(mod::RegressionModel) = anova(mod.model)
-function anova{T<:BlasReal,V<:FPVector}(mod::LinearModel{LmResp{V},DensePredQR{T}})
+function anova{M<:LinearModel}(mod::M)
   eff = effects(mod)
   hasIntercept = isapprox(mean(mod.pp.X[:,1])-1.0,0.0)
   if hasIntercept
@@ -33,6 +41,7 @@ function anova{T<:BlasReal,V<:FPVector}(mod::LinearModel{LmResp{V},DensePredQR{T
     k = 0
   end
   n = size(mod.pp.X,2) + 1 - k
+  T = eltype(mod.pp.X)
   DF = zeros(T,n)
   SS = zeros(T,n)
   MS = zeros(T,n)
