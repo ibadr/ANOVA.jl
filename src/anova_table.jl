@@ -1,5 +1,6 @@
 using GLM
 using StatsBase: RegressionModel
+import Base: show
 
 # Similar to typealiases in GLM
 typealias BlasReal Union{Float32,Float64}
@@ -23,8 +24,9 @@ function effects{T<:BlasReal,V<:FPVector,C<:Any}(
 end
 
 type AnovaTable{T<:BlasReal}
+  responsename
   termnames::Vector{Any}
-  Df::Vector{T}
+  DF::Vector{T}
   SS::Vector{T}
   MS::Vector{T}
   F::Vector{T}
@@ -35,16 +37,18 @@ function anova(mod::RegressionModel)
   eff = effects(mod)
   with_intercept = all(mod.model.pp.X[:,1] .== 1.0)
   T = eltype(mod.model.pp.X)
+  response = mod.mf.terms.eterms[1]
   termnames = mod.mf.terms.terms
   assign = mod.mm.assign
   df_residual = dof_residual(mod)
-  devnc = deviance(mod.model.rr)
-  return _anova(eff,with_intercept,T,termnames,assign,df_residual,devnc)
+  devnc = deviance(mod)
+  return _anova(eff,with_intercept,T,response,termnames,assign,df_residual,devnc)
 end
 function anova{M<:LinearModel}(mod::M)
   eff = effects(mod)
   with_intercept = all(mod.pp.X[:,1] .== 1.0)
   T = eltype(mod.pp.X)
+  response = "y"
   if with_intercept
     termnames = ["x$i" for i in 1:size(mod.pp.X,2)-1]
   else
@@ -52,11 +56,11 @@ function anova{M<:LinearModel}(mod::M)
   end
   assign = 0:1:size(mod.pp.X,2)-1
   df_residual = dof_residual(mod)
-  devnc = deviance(mod.rr)
-  return _anova(eff,with_intercept,T,termnames,assign,df_residual,devnc)
+  devnc = deviance(mod)
+  return _anova(eff,with_intercept,T,response,termnames,assign,df_residual,devnc)
 end
 
-function _anova(eff,with_intercept,T,termnames,assign,df_residual,devnc)
+function _anova(eff,with_intercept,T,response,termnames,assign,df_residual,devnc)
   k = with_intercept ? 1 : 0
   unq_assign = unique(assign)
   n = length(unq_assign) + 1 - k
@@ -78,5 +82,26 @@ function _anova(eff,with_intercept,T,termnames,assign,df_residual,devnc)
     fstat[i] = MS[i]/MS[end]
     pval[i] = ccdf(FDist(DF[i], DF[end]), fstat[i])
   end
-  return AnovaTable(termnames,DF,SS,MS,fstat,pval)
+  return AnovaTable(response,termnames,DF,SS,MS,fstat,pval)
+end
+
+function show(io::IO, tab::AnovaTable)
+  rou(x) = round(x,3)
+  pad(x,w) = string(x,RepString(" ",w-length(x)))
+  
+  println(io,"Analysis of Variance Table")
+  println(io,"")
+  println(io,"Response: ",tab.responsename)
+  w = maximum(length.(string.(tab.termnames)))
+  resd = "Residuals"
+  w = max(w,length(resd))
+  println(io,RepString(" ",w+3),'\t',"DF",'\t',"SS",'\t',"MS",'\t',
+    "F",'\t',"Pr(>F)")
+  for i in 1:endof(tab.termnames)
+    println(io,pad(string(tab.termnames[i]),w),'\t',rou(tab.DF[i]),'\t',rou(tab.SS[i]),
+      '\t',rou(tab.MS[i]),'\t',rou(tab.F[i]),'\t',rou(tab.PrF[i]))
+  end
+  i = length(tab.DF)
+  println(io,pad(resd,w),'\t',rou(tab.DF[i]),'\t',rou(tab.SS[i]),
+    '\t',rou(tab.MS[i]))
 end
