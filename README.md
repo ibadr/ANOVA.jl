@@ -1,3 +1,7 @@
+# Discontinued
+
+This package is now superseded by [ANOVA.jl](https://github.com/marcpabst/ANOVA.jl)
+
 # ANOVA
 
 [![Build Status](https://travis-ci.org/ibadr/ANOVA.jl.svg?branch=master)](https://travis-ci.org/ibadr/ANOVA.jl)
